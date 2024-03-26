@@ -1,9 +1,10 @@
 import tkinter as tk
 import tkinter.font as tkFont
 from .html import Tag, Text
+from .fonts import get_font
 from typing import Literal
 
-hstep, vstep = 13, 18
+HSTEP, VSTEP = 13, 18
 
 
 class Browser:
@@ -47,7 +48,7 @@ class Browser:
         for x, y, c, f in self.display_list:
             if y > self.scroll + self.height:
                 continue
-            if y + vstep < self.scroll:
+            if y + VSTEP < self.scroll:
                 continue
             self.canvas.create_text(x, y - self.scroll, text=c, font=f, anchor="nw")
 
@@ -59,12 +60,15 @@ class Layout:
         self.height = height
         self.style: Literal["roman", "italic"] = "roman"
         self.weight: Literal["normal", "bold"] = "normal"
-        self.cursor_x = hstep
-        self.cursor_y = vstep
+        self.cursor_x = HSTEP
+        self.cursor_y = VSTEP
+        self.size = 16
         self.font = tkFont.Font(family="Times", size=16, weight="normal", slant="roman")
         self.display_list: list[tuple[int, int | float, str, tkFont.Font]] = []
+        self.line: list[tuple[int, int | float, str, tkFont.Font]] = []
         for token in tokens:
             self.tokenize(token)
+        self.flush()
 
     def tokenize(self, token: Tag | Text):
         if isinstance(token, Text):
@@ -77,17 +81,41 @@ class Layout:
             self.style = "roman"
         elif token.tag == "/b":
             self.weight = "normal"
+        elif token.tag == "small":
+            self.size -= 2
+        elif token.tag == "/small":
+            self.size += 2
+        elif token.tag == "big":
+            self.size += 4
+        elif token.tag == "/big":
+            self.size -= 4
+        elif token.tag == "/p":
+            self.flush()
+            self.cursor_y += VSTEP
 
     def word(self, word: str):
         w = self.font.measure(word)
-        wordFont = tkFont.Font(
-            family=self.font.cget("family"),
-            size=self.font.cget("size"),
-            weight=self.weight,
-            slant=self.style,
-        )
-        self.display_list.append((self.cursor_x, self.cursor_y, word, wordFont))
+        if self.cursor_x + w > self.width - HSTEP:
+            self.flush()
+        wordFont = get_font(self.size, self.weight, self.style)
+        self.line.append((self.cursor_x, self.cursor_y, word, wordFont))
         self.cursor_x += w + self.font.measure(" ")
-        if self.cursor_x + w > self.width - hstep:
-            self.cursor_x = hstep
+        if self.cursor_x + w > self.width - HSTEP:
+            self.cursor_x = HSTEP
             self.cursor_y += self.font.metrics("linespace") * 1.25
+
+    def flush(self):
+        if not self.line:
+            return
+        metrics = [font.metrics() for x, y, word, font in self.line]
+        max_ascent = max([metric["ascent"] for metric in metrics])
+
+        baseline = self.cursor_y + 1.25 * max_ascent
+
+        for x, y, word, font in self.line:
+            y = baseline - font.metrics("ascent")
+            self.display_list.append((x, y, word, font))
+        max_descent = max([metric["descent"] for metric in metrics])
+        self.cursor_y = baseline + 1.25 * max_descent
+        self.cursor_x = HSTEP
+        self.line = []
